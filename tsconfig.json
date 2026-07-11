@@ -1,6 +1,5 @@
 {
   "compilerOptions": {
-    "baseUrl": ".",
     "inlineSourceMap": true,
     "inlineSources": true,
     "module": "ESNext",
@@ -8,6 +7,10 @@
     "allowJs": true,
     "noImplicitAny": true,
     "moduleResolution": "bundler",
+    "paths": {
+      "src/*": ["./src/*"],
+      "@halo-dev/api-client": ["./node_modules/@halo-dev/api-client/dist/index.d.ts"]
+    },
     "importHelpers": true,
     "isolatedModules": true,
     "strictNullChecks": true,
