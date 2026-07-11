@@ -10,6 +10,7 @@ import {
   HaloSettingTab,
   type HaloSite,
   isSameSiteUrl,
+  normalizeOpenListSettings,
   normalizeSite,
 } from "./settings";
 import { openSiteSelectionModal } from "./site-selection-modal";
@@ -18,7 +19,7 @@ export default class HaloPlugin extends Plugin {
   settings: HaloSetting;
 
   async onload() {
-    console.log("loading obsidian-halo plugin");
+    console.log("loading obsidian-halo-pro plugin");
 
     await i18next.init({
       lng: moment.locale(),
@@ -141,12 +142,15 @@ export default class HaloPlugin extends Plugin {
     this.settings = {
       ...settings,
       sites: settings.sites.map(normalizeSite),
+      imageUploadProvider: settings.imageUploadProvider ?? DEFAULT_SETTINGS.imageUploadProvider,
+      openList: normalizeOpenListSettings(settings.openList ?? DEFAULT_SETTINGS.openList),
       imageUploadCache: { ...(settings.imageUploadCache ?? {}) },
     };
   }
 
   async saveSettings() {
     this.settings.sites = this.settings.sites.map(normalizeSite);
+    this.settings.openList = normalizeOpenListSettings(this.settings.openList);
     await this.saveData(this.settings);
   }
 

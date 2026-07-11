@@ -23,7 +23,7 @@
       "error_no_sites": "請先配置網站"
     },
     "upload_images": {
-      "name": "上傳圖片到 Halo",
+      "name": "上傳圖片",
       "error_no_sites": "請先配置網站",
       "error_no_matched_site": "此文件發佈到的網站未配置"
     }
@@ -43,7 +43,41 @@
     },
     "replaceImageLinks": {
       "name": "替換圖片連結",
-      "description": "上傳成功後，將 Markdown 中的本機圖片連結替換為 Halo 位址。關閉後，發布內容仍會使用上傳後的位址。"
+      "description": "上傳成功後，將 Markdown 中的本機圖片連結替換為上傳後的位址。關閉後，發布內容仍會使用上傳後的位址。"
+    },
+    "imageUploadProvider": {
+      "name": "圖片上傳位置",
+      "description": "選擇本機圖片上傳到 Halo 附件庫或 OpenList。",
+      "options": {
+        "halo": "Halo 附件庫",
+        "openlist": "OpenList"
+      }
+    },
+    "openList": {
+      "siteUrl": {
+        "name": "OpenList 服務地址",
+        "description": "完整訪問地址，例如 https://alist.example.com。"
+      },
+      "username": {
+        "name": "OpenList 使用者名稱",
+        "description": "用於登入 OpenList 的使用者名稱。"
+      },
+      "password": {
+        "name": "OpenList 密碼",
+        "description": "用於登入 OpenList 的密碼。"
+      },
+      "uploadPath": {
+        "name": "OpenList 上傳根路徑",
+        "description": "圖片將上傳到此路徑下，例如 /blog/images。"
+      },
+      "createDateFolders": {
+        "name": "按日期建立資料夾",
+        "description": "開啟後在上傳根路徑下按 年/月 建立目錄；關閉後直接上傳到根路徑。"
+      },
+      "tokenEndpoint": {
+        "name": "OpenList Token 接口",
+        "description": "登入接口路徑，通常保持 /api/auth/login。"
+      }
     }
   },
   "post_selection_modal": {
@@ -101,7 +135,8 @@
     "error_upload_images_failed_publish_aborted": "有 {{failed}} 張圖片上傳失敗，已取消發布",
     "notice_no_images_to_upload": "沒有需要上傳的本地圖片",
     "notice_upload_images_success": "已處理 {{count}} 張圖片",
-    "notice_upload_images_partial": "已處理 {{count}} 張圖片，{{failed}} 張失敗"
+    "notice_upload_images_partial": "已處理 {{count}} 張圖片，{{failed}} 張失敗",
+    "error_openlist_not_configured": "請先配置 OpenList 圖片上傳參數"
   },
   "common": {
     "error_connection_failed": "連接失敗",

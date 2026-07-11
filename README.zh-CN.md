@@ -1,4 +1,4 @@
-# Obsidian Halo 插件
+# Obsidian Halo Pro 插件
 
 这个插件可以让你将 Obsidian 文档发布到 [Halo](https://github.com/halo-dev/halo)。
 
@@ -12,9 +12,9 @@
 
 ## 使用
 
-1. 在 Obsidian 的社区插件市场中搜索 **Halo**。
+1. 在 Obsidian 的社区插件市场中搜索 **Halo Pro**。
 2. 点击 **安装**。
-3. 进入设置 -> 社区插件 -> Halo。
+3. 进入设置 -> 社区插件 -> Halo Pro。
 4. 创建一个新站点：
    1. 站点名称：站点的名称，可选。
    2. 站点 URL：站点的 URL，例如 `https://example.com`。
@@ -28,11 +28,11 @@
 
 5. 打开要发布的笔记，并运行命令。
 6. 所有可用的命令：
-   - **Halo: 发布到 Halo**：将当前笔记发布到 Halo。
-   - **Halo: 发布到 Halo（使用默认配置）**：将当前文档发布到默认站点。
-   - **Halo: 上传图片到 Halo**：将当前文档中的本地图片上传到 Halo，并替换为远程地址。
-   - **Halo: 从 Halo 拉取文档**：从 Halo 拉取文章到 Obsidian。
-   - **Halo: 从 Halo 更新内容**：从 Halo 更新当前文档的内容。
+   - **Halo Pro: 发布到 Halo**：将当前笔记发布到 Halo。
+   - **Halo Pro: 发布到 Halo（使用默认配置）**：将当前文档发布到默认站点。
+   - **Halo Pro: 上传图片**：按设置上传当前文档中的本地图片，并替换为远程地址。
+   - **Halo Pro: 从 Halo 拉取文档**：从 Halo 拉取文章到 Obsidian。
+   - **Halo Pro: 从 Halo 更新内容**：从 Halo 更新当前文档的内容。
 
 ## 开发
 
@@ -42,13 +42,13 @@
    ```bash
    cd path/to/vault/.obsidian/plugins
 
-   git clone <https://github.com/ruibaby/obsidian-halo>
+   git clone <https://github.com/ruibaby/obsidian-halo> halo_pro
    ```
 
 3. 安装依赖
 
    ```bash
-   cd obsidian-halo
+   cd halo_pro
 
    npm install
    ```

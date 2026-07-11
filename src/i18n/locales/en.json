@@ -23,7 +23,7 @@
       "error_no_sites": "Please configure sites first"
     },
     "upload_images": {
-      "name": "Upload images to Halo",
+      "name": "Upload images",
       "error_no_sites": "Please configure sites first",
       "error_no_matched_site": "The site this document publishes to is not configured"
     }
@@ -43,7 +43,41 @@
     },
     "replaceImageLinks": {
       "name": "Replace image links",
-      "description": "Replace local Markdown image links with Halo URLs after upload. When disabled, published content still uses the uploaded URLs."
+      "description": "Replace local Markdown image links with uploaded URLs after upload. When disabled, published content still uses the uploaded URLs."
+    },
+    "imageUploadProvider": {
+      "name": "Image upload destination",
+      "description": "Choose whether local images are uploaded to Halo attachments or OpenList.",
+      "options": {
+        "halo": "Halo attachments",
+        "openlist": "OpenList"
+      }
+    },
+    "openList": {
+      "siteUrl": {
+        "name": "OpenList site URL",
+        "description": "Full OpenList URL, for example https://alist.example.com."
+      },
+      "username": {
+        "name": "OpenList username",
+        "description": "Username used to log in to OpenList."
+      },
+      "password": {
+        "name": "OpenList password",
+        "description": "Password used to log in to OpenList."
+      },
+      "uploadPath": {
+        "name": "OpenList upload root",
+        "description": "Images are uploaded under this path, for example /blog/images."
+      },
+      "createDateFolders": {
+        "name": "Create date folders",
+        "description": "When enabled, images are grouped under year/month folders. When disabled, images are uploaded directly to the root path."
+      },
+      "tokenEndpoint": {
+        "name": "OpenList token endpoint",
+        "description": "Login endpoint path, usually /api/auth/login."
+      }
     }
   },
   "post_selection_modal": {
@@ -101,7 +135,8 @@
     "error_upload_images_failed_publish_aborted": "{{failed}} image(s) failed to upload. Publishing was aborted.",
     "notice_no_images_to_upload": "No local images to upload",
     "notice_upload_images_success": "Processed {{count}} image(s)",
-    "notice_upload_images_partial": "Processed {{count}} image(s), {{failed}} failed"
+    "notice_upload_images_partial": "Processed {{count}} image(s), {{failed}} failed",
+    "error_openlist_not_configured": "Please configure OpenList image upload settings first"
   },
   "common": {
     "error_connection_failed": "Connection failed",

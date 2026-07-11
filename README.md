@@ -1,4 +1,4 @@
-# Obsidian plugin for Halo
+# Obsidian plugin for Halo Pro
 
 This plugin allows you to publish your Obsidian documents to [Halo](https://github.com/halo-dev/halo).
 
@@ -12,9 +12,9 @@ This plugin allows you to publish your Obsidian documents to [Halo](https://gith
 
 ## Usage
 
-1. Search for "Halo" in Obsidian's community plugins browser.
+1. Search for "Halo Pro" in Obsidian's community plugins browser.
 2. Click **Install**.
-3. Go to **Settings** -> **Community Plugins** -> **Halo** and configure the settings.
+3. Go to **Settings** -> **Community Plugins** -> **Halo Pro** and configure the settings.
 4. Create a new site:
    1. Site name: the name of the site, optional.
    2. Site URL: the URL of the site, e.g. `https://example.com`.
@@ -26,13 +26,13 @@ This plugin allows you to publish your Obsidian documents to [Halo](https://gith
        More information about personal access token: [Personal Access Token](https://docs.halo.run/user-guide/user-center#%E4%B8%AA%E4%BA%BA%E4%BB%A4%E7%89%8C)
 
    4. Set as default: set the site as the default site.
-5. Open a note you want to publish, and run the command `Halo: Publish to Halo`.
+5. Open a note you want to publish, and run the command `Halo Pro: Publish to Halo`.
 6. All available commands:
-   - **Halo: Publish to Halo**: publish the current note to Halo.
-   - **Halo: Publish to Halo (use default settings)**: publish the current note to the default site.
-   - **Halo: Upload images to Halo**: upload local images in the current note to Halo and replace them with remote URLs.
-   - **Halo: Pull posts from Halo**: pull posts from Halo to Obsidian.
-   - **Halo: Update content from Halo**: update the content of the current note from Halo.
+   - **Halo Pro: Publish to Halo**: publish the current note to Halo.
+   - **Halo Pro: Publish to Halo (use default settings)**: publish the current note to the default site.
+   - **Halo Pro: Upload images**: upload local images in the current note and replace them with remote URLs according to settings.
+   - **Halo Pro: Pull posts from Halo**: pull posts from Halo to Obsidian.
+   - **Halo Pro: Update content from Halo**: update the content of the current note from Halo.
 
 ## Development
 
@@ -42,13 +42,13 @@ This plugin allows you to publish your Obsidian documents to [Halo](https://gith
    ```bash
    cd path/to/vault/.obsidian/plugins
 
-   git clone https://github.com/ruibaby/obsidian-halo
+   git clone https://github.com/ruibaby/obsidian-halo halo_pro
    ```
 
 3. Install dependencies
 
    ```bash
-   cd obsidian-halo
+   cd halo_pro
 
    npm install
    ```

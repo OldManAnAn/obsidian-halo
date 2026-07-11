@@ -23,6 +23,7 @@ interface MockAppParts {
     getFirstLinkpathDest: ReturnType<typeof rs.fn>;
   };
   vault: {
+    create: ReturnType<typeof rs.fn>;
     getAbstractFileByPath: ReturnType<typeof rs.fn>;
     modify: ReturnType<typeof rs.fn>;
     read: ReturnType<typeof rs.fn>;
@@ -42,6 +43,15 @@ function createSettings(overrides: Partial<HaloSetting> = {}): HaloSetting {
     sites: [site],
     publishByDefault: false,
     replaceImageLinks: true,
+    imageUploadProvider: "halo",
+    openList: {
+      siteUrl: "",
+      username: "",
+      password: "",
+      uploadPath: "",
+      createDateFolders: true,
+      tokenEndpoint: "/api/auth/login",
+    },
     imageUploadCache: {},
     ...overrides,
   };
@@ -84,6 +94,12 @@ function createMockApp(markdown: string, activeFile: TFile, files: TFile[]): Moc
   }
 
   const vault = {
+    create: rs.fn(async (path: string, content: string) => {
+      const file = createFile(path);
+      filesByPath.set(file.path, file);
+      contents.set(file.path, content);
+      return file;
+    }),
     getAbstractFileByPath: rs.fn((path: string) => filesByPath.get(path)),
     modify: rs.fn(async (file: TFile, updatedMarkdown: string) => {
       contents.set(file.path, updatedMarkdown);
@@ -112,6 +128,9 @@ function createMockApp(markdown: string, activeFile: TFile, files: TFile[]): Moc
         activeEditor: {
           file: activeFile,
         },
+        getLeaf: rs.fn(() => ({
+          openFile: rs.fn(),
+        })),
       },
     } as unknown as App,
     contents,
@@ -354,6 +373,150 @@ describe("HaloService.uploadImages", () => {
     expect(requestUrlMock().mock.calls).toHaveLength(0);
   });
 
+  test("uploads local images to OpenList and returns OpenList permalinks", async () => {
+    const note = createFile("post.md");
+    const logo = createFile("images/logo.png", 10, 100);
+    const { app } = createMockApp("![Logo](images/logo.png)", note, [logo]);
+    const settings = createSettings({
+      imageUploadProvider: "openlist",
+      openList: {
+        siteUrl: "https://openlist.example.com",
+        username: "admin",
+        password: "password",
+        uploadPath: "/blog/images",
+        createDateFolders: true,
+        tokenEndpoint: "/api/auth/login",
+      },
+    });
+    const service = new HaloService(app, settings, site);
+
+    requestUrlMock().mockImplementation((request: RequestUrlParam) => {
+      const url = typeof request === "string" ? request : request.url;
+      const method = typeof request === "string" ? "GET" : request.method || "GET";
+
+      if (url === "https://openlist.example.com/api/auth/login") {
+        expect(method).toBe("POST");
+        return {
+          json: {
+            code: 200,
+            data: {
+              token: "openlist-token",
+            },
+          },
+        };
+      }
+
+      if (url === "https://openlist.example.com/api/fs/mkdir") {
+        expect(method).toBe("POST");
+        expect(typeof request !== "string" && request.headers).toMatchObject({
+          Authorization: "openlist-token",
+        });
+        return {
+          json: {
+            code: 200,
+          },
+        };
+      }
+
+      if (url === "https://openlist.example.com/api/fs/put") {
+        expect(method).toBe("PUT");
+        expect(typeof request !== "string" && request.headers).toMatchObject({
+          Authorization: "openlist-token",
+        });
+        expect(typeof request !== "string" && `${request.headers?.["File-Path"]}`).toMatch(
+          /^%2Fblog%2Fimages%2F\d{4}%2F\d{2}%2F[0-9a-f-]{8}-logo\.png$/,
+        );
+        return {
+          json: {
+            code: 200,
+          },
+        };
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    const result = await service.uploadImages({ silent: true });
+
+    expect(result).toMatchObject({
+      failedCount: 0,
+      processedCount: 1,
+      replaced: true,
+      uploadedCount: 1,
+    });
+    expect(result.markdown).toMatch(
+      /^!\[Logo\]\(https:\/\/openlist\.example\.com\/d\/blog\/images\/\d{4}\/\d{2}\/[0-9a-f-]{8}-logo\.png\)$/,
+    );
+    expect(settings.imageUploadCache["openlist:https://openlist.example.com"]["images/logo.png"]).toMatchObject({
+      provider: "openlist",
+      permalink: expect.stringMatching(/^https:\/\/openlist\.example\.com\/d\/blog\/images\//),
+    });
+  });
+
+  test("uploads OpenList images directly under upload root when date folders are disabled", async () => {
+    const note = createFile("post.md");
+    const logo = createFile("images/logo.png", 10, 100);
+    const { app } = createMockApp("![Logo](images/logo.png)", note, [logo]);
+    const service = new HaloService(
+      app,
+      createSettings({
+        imageUploadProvider: "openlist",
+        openList: {
+          siteUrl: "https://openlist.example.com",
+          username: "admin",
+          password: "password",
+          uploadPath: "/blog/images",
+          createDateFolders: false,
+          tokenEndpoint: "/api/auth/login",
+        },
+      }),
+      site,
+    );
+
+    requestUrlMock().mockImplementation((request: RequestUrlParam) => {
+      const url = typeof request === "string" ? request : request.url;
+
+      if (url === "https://openlist.example.com/api/auth/login") {
+        return {
+          json: {
+            code: 200,
+            data: {
+              token: "openlist-token",
+            },
+          },
+        };
+      }
+
+      if (url === "https://openlist.example.com/api/fs/mkdir") {
+        expect(typeof request !== "string" && request.body).toBe(JSON.stringify({ path: "/blog/images" }));
+        return {
+          json: {
+            code: 200,
+          },
+        };
+      }
+
+      if (url === "https://openlist.example.com/api/fs/put") {
+        expect(typeof request !== "string" && `${request.headers?.["File-Path"]}`).toMatch(
+          /^%2Fblog%2Fimages%2F[0-9a-f-]{8}-logo\.png$/,
+        );
+        return {
+          json: {
+            code: 200,
+          },
+        };
+      }
+
+      throw new Error(`Unexpected request: ${url}`);
+    });
+
+    const result = await service.uploadImages({ silent: true });
+
+    expect(result.markdown).toMatch(
+      /^!\[Logo\]\(https:\/\/openlist\.example\.com\/d\/blog\/images\/[0-9a-f-]{8}-logo\.png\)$/,
+    );
+  });
+
   test("ignores stale cache entries and refreshes the cache after upload", async () => {
     const note = createFile("post.md");
     const logo = createFile("logo.png", 10, 200);
@@ -576,6 +739,45 @@ describe("HaloService.updatePost", () => {
     await service.updatePost();
 
     expect(contents.get(note.path)).toBe(remoteMarkdown);
+  });
+});
+
+describe("HaloService.pullPost", () => {
+  beforeEach(() => {
+    requestUrlMock().mockReset();
+  });
+
+  test("restores cached local image links when image link replacement is disabled", async () => {
+    const note = createFile("post.md");
+    const logo = createFile("images/logo.png", 10, 100);
+    const remoteMarkdown = "![Logo](https://openlist.example.com/d/blog/images/2026/07/logo.png)";
+    const { app, contents } = createMockApp("local markdown", note, [logo]);
+    const service = new HaloService(
+      app,
+      createSettings({
+        replaceImageLinks: false,
+        imageUploadCache: {
+          "openlist:https://openlist.example.com": {
+            "images/logo.png": {
+              filePath: "images/logo.png",
+              linkType: "markdown",
+              mtime: 100,
+              permalink: "https://openlist.example.com/d/blog/images/2026/07/logo.png",
+              provider: "openlist",
+              size: 10,
+              updatedAt: 1,
+            },
+          },
+        },
+      }),
+      site,
+    );
+
+    mockUpdatePostRequests(remoteMarkdown);
+
+    await service.pullPost("post-1");
+
+    expect(contents.get("Post title.md")).toBe("![Logo](images/logo.png)");
   });
 });
 

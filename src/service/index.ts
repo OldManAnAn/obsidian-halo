@@ -4,7 +4,15 @@ import { type App, Notice, TFile, getLinkpath, normalizePath, requestUrl } from 
 import { randomUUID } from "src/utils/id";
 import markdownIt from "src/utils/markdown";
 import { slugify } from "transliteration";
-import { type HaloSetting, type HaloSite, type ImageUploadCacheEntry, isSameSiteUrl, normalizeSite } from "../settings";
+import {
+  type HaloSetting,
+  type HaloSite,
+  type ImageUploadCacheEntry,
+  type ImageUploadProvider,
+  isSameSiteUrl,
+  normalizeOpenListSettings,
+  normalizeSite,
+} from "../settings";
 
 interface LocalImageReference {
   file: TFile;
@@ -47,6 +55,7 @@ interface HaloPostFrontmatter {
 const IMAGE_EXTENSIONS = new Set(["avif", "bmp", "gif", "ico", "jpeg", "jpg", "png", "svg", "tif", "tiff", "webp"]);
 const PUBLISH_RETRY_COUNT = 3;
 const PUBLISH_RETRY_DELAY_MS = 500;
+const OPENLIST_TOKEN_TTL_MS = 48 * 60 * 60 * 1000;
 
 const IMAGE_MIME_TYPES: Record<string, string> = {
   avif: "image/avif",
@@ -61,6 +70,8 @@ const IMAGE_MIME_TYPES: Record<string, string> = {
   tiff: "image/tiff",
   webp: "image/webp",
 };
+
+const openListTokenCache = new Map<string, { token: string; createdAt: number }>();
 
 class HaloService {
   private readonly site: HaloSite;
@@ -440,9 +451,7 @@ class HaloService {
     const postCategories = await this.getCategoryDisplayNames(post.post.spec.categories);
     const postTags = await this.getTagDisplayNames(post.post.spec.tags);
 
-    const raw = this.settings.replaceImageLinks
-      ? `${post.content.raw}`
-      : this.restoreCachedLocalImageLinks(`${post.content.raw}`);
+    const raw = this.preparePulledMarkdown(`${post.content.raw}`);
 
     await this.app.vault.modify(activeEditor.file, raw);
 
@@ -472,7 +481,8 @@ class HaloService {
     const postCategories = await this.getCategoryDisplayNames(post.post.spec.categories);
     const postTags = await this.getTagDisplayNames(post.post.spec.tags);
 
-    const file = await this.app.vault.create(`${post.post.spec.title}.md`, `${post.content.raw}`);
+    const raw = this.preparePulledMarkdown(`${post.content.raw}`);
+    const file = await this.app.vault.create(`${post.post.spec.title}.md`, raw);
     this.app.workspace.getLeaf().openFile(file);
 
     this.app.fileManager.processFrontMatter(file, (frontmatter) => {
@@ -595,6 +605,14 @@ class HaloService {
   }
 
   public async uploadImage(file: TFile): Promise<string> {
+    if (this.settings.imageUploadProvider === "openlist") {
+      return this.uploadImageToOpenList(file);
+    }
+
+    return this.uploadImageToHalo(file);
+  }
+
+  private async uploadImageToHalo(file: TFile): Promise<string> {
     const fileData = await this.app.vault.readBinary(file);
     const body = this.createMultipartBody(file.name, file.extension, fileData);
     const attachment = (await requestUrl({
@@ -618,8 +636,164 @@ class HaloService {
     return `${this.site.url}${permalink}`;
   }
 
+  private async uploadImageToOpenList(file: TFile): Promise<string> {
+    const openList = normalizeOpenListSettings(this.settings.openList);
+
+    if (!openList.siteUrl || !openList.username || !openList.password) {
+      throw new Error(i18next.t("service.error_openlist_not_configured"));
+    }
+
+    const fileData = await this.app.vault.readBinary(file);
+    const remotePath = this.createOpenListRemotePath(file.name);
+    const directoryPath = remotePath.slice(0, remotePath.lastIndexOf("/")) || "/";
+    const token = await this.getOpenListToken(openList);
+
+    try {
+      await this.createOpenListDirectory(openList, token, directoryPath);
+      await this.uploadOpenListFile(openList, token, remotePath, file, fileData);
+    } catch (error) {
+      if (!this.isUnauthorizedOpenListError(error)) {
+        throw error;
+      }
+
+      const refreshedToken = await this.loginOpenList(openList);
+      this.cacheOpenListToken(openList, refreshedToken);
+      await this.createOpenListDirectory(openList, refreshedToken, directoryPath);
+      await this.uploadOpenListFile(openList, refreshedToken, remotePath, file, fileData);
+    }
+
+    return this.createOpenListPermalink(openList.siteUrl, remotePath);
+  }
+
+  private async getOpenListToken(openList: ReturnType<typeof normalizeOpenListSettings>): Promise<string> {
+    const cacheKey = `${openList.siteUrl}|${openList.username}`;
+    const cached = openListTokenCache.get(cacheKey);
+
+    if (cached && Date.now() - cached.createdAt < OPENLIST_TOKEN_TTL_MS) {
+      return cached.token;
+    }
+
+    const token = await this.loginOpenList(openList);
+    this.cacheOpenListToken(openList, token);
+    return token;
+  }
+
+  private cacheOpenListToken(openList: ReturnType<typeof normalizeOpenListSettings>, token: string): void {
+    openListTokenCache.set(`${openList.siteUrl}|${openList.username}`, {
+      token,
+      createdAt: Date.now(),
+    });
+  }
+
+  private async loginOpenList(openList: ReturnType<typeof normalizeOpenListSettings>): Promise<string> {
+    const response = await requestUrl({
+      url: `${openList.siteUrl}${this.ensureLeadingSlash(openList.tokenEndpoint)}`,
+      method: "POST",
+      contentType: "application/json",
+      body: JSON.stringify({
+        username: openList.username,
+        password: openList.password,
+      }),
+    });
+
+    const token = response.json?.data?.token;
+
+    if (response.json?.code !== 200 || !token) {
+      throw new Error(`OpenList login failed: ${response.json?.message || "unknown error"}`);
+    }
+
+    return `${token}`;
+  }
+
+  private async createOpenListDirectory(
+    openList: ReturnType<typeof normalizeOpenListSettings>,
+    token: string,
+    path: string,
+  ): Promise<void> {
+    const response = await requestUrl({
+      url: `${openList.siteUrl}/api/fs/mkdir`,
+      method: "POST",
+      contentType: "application/json",
+      headers: {
+        Authorization: token,
+      },
+      body: JSON.stringify({ path }),
+    });
+
+    if (response.json?.code !== 200) {
+      console.debug("OpenList mkdir skipped:", response.json?.message);
+    }
+  }
+
+  private async uploadOpenListFile(
+    openList: ReturnType<typeof normalizeOpenListSettings>,
+    token: string,
+    remotePath: string,
+    file: TFile,
+    fileData: ArrayBuffer,
+  ): Promise<void> {
+    const response = await requestUrl({
+      url: `${openList.siteUrl}/api/fs/put`,
+      method: "PUT",
+      contentType: IMAGE_MIME_TYPES[file.extension.toLowerCase()] || "application/octet-stream",
+      headers: {
+        Authorization: token,
+        "File-Path": this.encodeOpenListHeaderPath(remotePath),
+        "Last-Modified": `${file.stat.mtime}`,
+        "X-File-Size": `${fileData.byteLength}`,
+      },
+      body: fileData,
+    });
+
+    if (response.json?.code !== 200) {
+      throw new Error(`OpenList upload failed: ${response.json?.message || "unknown error"}`);
+    }
+  }
+
+  private createOpenListRemotePath(filename: string): string {
+    const now = new Date();
+    const year = `${now.getFullYear()}`;
+    const month = `${now.getMonth() + 1}`.padStart(2, "0");
+    const safeFilename = filename.replace(/[\\/:*?"<>|\r\n]/g, "_");
+    const prefixedFilename = `${randomUUID().slice(0, 8)}-${safeFilename}`;
+    const openList = normalizeOpenListSettings(this.settings.openList);
+    const directoryPath = openList.createDateFolders ? `${openList.uploadPath}/${year}/${month}` : openList.uploadPath;
+
+    return `${directoryPath}/${prefixedFilename}`.replace(/\/+/g, "/");
+  }
+
+  private createOpenListPermalink(siteUrl: string, remotePath: string): string {
+    return `${siteUrl}/d${this.encodeOpenListPermalinkPath(remotePath)}`;
+  }
+
+  private encodeOpenListHeaderPath(path: string): string {
+    return encodeURIComponent(path).replace(/\+/g, "%20");
+  }
+
+  private encodeOpenListPermalinkPath(path: string): string {
+    return path
+      .split("/")
+      .filter(Boolean)
+      .map((segment) => encodeURIComponent(segment).replace(/\+/g, "%20"))
+      .map((segment) => `/${segment}`)
+      .join("");
+  }
+
+  private ensureLeadingSlash(path: string): string {
+    return path.startsWith("/") ? path : `/${path}`;
+  }
+
+  private isUnauthorizedOpenListError(error: unknown): boolean {
+    if (!error || typeof error !== "object") {
+      return false;
+    }
+
+    const maybeError = error as { status?: number; statusCode?: number; response?: { status?: number } };
+    return maybeError.status === 401 || maybeError.statusCode === 401 || maybeError.response?.status === 401;
+  }
+
   private getCachedImagePermalink(file: TFile): string | undefined {
-    const cacheEntry = this.settings.imageUploadCache[this.site.url]?.[file.path];
+    const cacheEntry = this.settings.imageUploadCache[this.getImageUploadCacheKey()]?.[file.path];
 
     if (!cacheEntry || !this.isSameImageFile(file, cacheEntry)) {
       return undefined;
@@ -629,21 +803,24 @@ class HaloService {
   }
 
   private cacheImagePermalink(file: TFile, permalink: string, imageReference: LocalImageReference): void {
-    const siteCache = this.settings.imageUploadCache[this.site.url] ?? {};
+    const cacheKey = this.getImageUploadCacheKey();
+    const siteCache = this.settings.imageUploadCache[cacheKey] ?? {};
     siteCache[file.path] = {
       filePath: file.path,
       linkType: imageReference.linkType,
+      provider: this.settings.imageUploadProvider,
       size: file.stat.size,
       mtime: file.stat.mtime,
       permalink,
       updatedAt: Date.now(),
       wikiAlias: imageReference.wikiAlias,
     };
-    this.settings.imageUploadCache[this.site.url] = siteCache;
+    this.settings.imageUploadCache[cacheKey] = siteCache;
   }
 
   private cacheImageReference(file: TFile, imageReference: LocalImageReference): void {
-    const siteCache = this.settings.imageUploadCache[this.site.url] ?? {};
+    const cacheKey = this.getImageUploadCacheKey();
+    const siteCache = this.settings.imageUploadCache[cacheKey] ?? {};
     const cacheEntry = siteCache[file.path];
 
     if (!cacheEntry) {
@@ -656,7 +833,20 @@ class HaloService {
       updatedAt: Date.now(),
       wikiAlias: imageReference.wikiAlias,
     };
-    this.settings.imageUploadCache[this.site.url] = siteCache;
+    this.settings.imageUploadCache[cacheKey] = siteCache;
+  }
+
+  private getImageUploadCacheKey(provider: ImageUploadProvider = this.settings.imageUploadProvider): string {
+    if (provider === "openlist") {
+      const openList = normalizeOpenListSettings(this.settings.openList);
+      return `openlist:${openList.siteUrl}`;
+    }
+
+    return this.site.url;
+  }
+
+  private preparePulledMarkdown(markdown: string): string {
+    return this.settings.replaceImageLinks ? markdown : this.restoreCachedLocalImageLinks(markdown);
   }
 
   private isSameImageFile(file: TFile, cacheEntry: ImageUploadCacheEntry): boolean {
@@ -738,18 +928,27 @@ class HaloService {
   }
 
   private getCachedLocalImageEntry(permalink: string): ImageUploadCacheEntry | undefined {
-    const siteCache = this.settings.imageUploadCache[this.site.url] ?? {};
     const normalizedPermalink = this.normalizePermalink(permalink);
+    const cacheKeys = [
+      this.getImageUploadCacheKey(),
+      this.getImageUploadCacheKey("halo"),
+      this.getImageUploadCacheKey("openlist"),
+      ...Object.keys(this.settings.imageUploadCache),
+    ].filter((key, index, keys) => key && keys.indexOf(key) === index);
 
-    for (const cacheEntry of Object.values(siteCache)) {
-      if (this.normalizePermalink(cacheEntry.permalink) !== normalizedPermalink) {
-        continue;
-      }
+    for (const cacheKey of cacheKeys) {
+      const siteCache = this.settings.imageUploadCache[cacheKey] ?? {};
 
-      const file = this.app.vault.getAbstractFileByPath(cacheEntry.filePath);
+      for (const cacheEntry of Object.values(siteCache)) {
+        if (this.normalizePermalink(cacheEntry.permalink) !== normalizedPermalink) {
+          continue;
+        }
 
-      if (file instanceof TFile && this.isImageFile(file) && this.isSameImageFile(file, cacheEntry)) {
-        return cacheEntry;
+        const file = this.app.vault.getAbstractFileByPath(cacheEntry.filePath);
+
+        if (file instanceof TFile && this.isImageFile(file) && this.isSameImageFile(file, cacheEntry)) {
+          return cacheEntry;
+        }
       }
     }
 
@@ -1061,7 +1260,7 @@ class HaloService {
     extension: string,
     fileData: ArrayBuffer,
   ): { contentType: string; data: ArrayBuffer } {
-    const boundary = `----obsidian-halo-${randomUUID()}`;
+    const boundary = `----obsidian-halo-pro-${randomUUID()}`;
     const mimeType = IMAGE_MIME_TYPES[extension.toLowerCase()] || "application/octet-stream";
     const safeFilename = filename.replace(/["\r\n]/g, "_");
     const encoder = new TextEncoder();
